@@ -9,11 +9,7 @@ def update_username_list(username, usernames):
         f.write('\n'.join(usernames))
 
 def check_username(username, token, headers):
-    json_data = {
-        'username': username,
-        'password': '',
-    }
-
+    json_data = {'username': username, 'password': ''}
     response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json=json_data)
     response_json = response.json()
 
@@ -32,20 +28,25 @@ def check_username(username, token, headers):
     else:
         return 'unknown_error'
 
-
 def load_file(file_name):
     with open(file_name, 'r') as f:
-        return f.read().splitlines()
-
+        return [line.strip() for line in f if line.strip()]
 
 def append_to_file(file_name, content):
     with open(file_name, 'a') as f:
         f.write(content + '\n')
 
-
 def main():
-    tokens = load_file('tokens.txt')
-    usernames = load_file('usernames.txt')
+    tokens, usernames = load_file('tokens.txt'), load_file('usernames.txt')
+
+    if not usernames:
+        logger.error("Файл usernames.txt пуст")
+        input()
+        return
+    if not tokens:
+        logger.error("Файл tokens.txt пуст")
+        input()
+        return
 
     headers = {
         'authority': 'discord.com',
@@ -57,18 +58,12 @@ def main():
     }
 
     sleep_times = {token: 0 for token in tokens}
-
     valid_tokens = []
 
     for token in tokens:
         logger.info(f"Проверяем токен {token}")
-        json_data = {
-            'username': 'qwe',
-            'password': '',
-        }
         headers['authorization'] = token
-
-        response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json=json_data)
+        response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json={'username': 'qwe', 'password': ''})
         response_json = response.json()
 
         if response.status_code == 401:
@@ -118,9 +113,7 @@ def main():
             sleep_times[token] = time.time() + result[1]
 
         else:
-            logger.error(f"Неизвестная ошибка при никнейме: {username}. Токен: {token}")
-            #append_to_file('unknown.txt', username)
-            #update_username_list(username, usernames)
+            logger.error(f"Неизвестная ошибка при никнейме: {username}. Токен: {token}. Ошибка: {result}")
             sleep_times[token] = time.time() + random.uniform(5, 10)
 
 if __name__ == "__main__":
