@@ -49,6 +49,7 @@ git clone https://github.com/vuchaev2015/DiscordUsernameFounder.git
 ```sh
 pip3 install -r requirements.txt 
 
-## Использвание
+
+## Usage
 
 В файле usernames.txt укажите юзернеймы которые будут проверяться, в файле tokens.txt укажите токены Discord. После установки всех необходимых модулей запустите файл main.py
