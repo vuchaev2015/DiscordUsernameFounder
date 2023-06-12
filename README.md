@@ -33,7 +33,7 @@ Discord Username Founder - поможет вам в поиске свободн�
 * Python версии не ниже 3
 
 ```sh
-[https://www.python.org/](https://www.python.org/)
+https://www.python.org/
 ```
 
 ### Установка
