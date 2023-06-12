@@ -91,52 +91,55 @@ def main():
     tokens = valid_tokens
     sleep_times = {token: 0 for token in tokens}
 
-    for i, username in enumerate(usernames):
-        if not tokens:
-            logger.error("Нет валидных токенов")
-            break
-
-        token = tokens[i % len(tokens)]
-        headers['authorization'] = token
-
-        while sleep_times[token] > time.time():
-            token = min(sleep_times, key=lambda t: sleep_times[t])
+    if not tokens:
+        logger.error("Нет валидных токенов")
+    else:
+        while usernames:
+            i = 0
+            username = usernames[0]
+            token = tokens[i % len(tokens)]
             headers['authorization'] = token
-            time.sleep(max(0, sleep_times[token] - time.time()))
 
-        result = check_username(username, token, headers)
+            while sleep_times[token] > time.time():
+                token = min(sleep_times, key=lambda t: sleep_times[t])
+                headers['authorization'] = token
+                time.sleep(max(0, sleep_times[token] - time.time()))
 
-        if result == 'taken':
-            logger.info(f'Никнейм {username} уже используется.')
-            append_to_file('bad.txt', username)
-            update_username_list(username, usernames)
-            sleep_times[token] = time.time() + random.uniform(3, 5)
+            result = check_username(username, token, headers)
 
-        elif result == 'not_taken':
-            logger.info(f'Никнейм {username} не используется.')
-            append_to_file('good.txt', username)
-            update_username_list(username, usernames)
-            sleep_times[token] = time.time() + random.uniform(1, 3)
+            if result == 'taken':
+                logger.info(f'Никнейм {username} уже используется.')
+                append_to_file('bad.txt', username)
+                update_username_list(username, usernames)
+                sleep_times[token] = time.time() + random.uniform(3, 5)
 
-        elif result == 'unauthorized':
-            logger.error(f"Токен {token} не авторизован и был удален")
-            tokens.remove(token)
+            elif result == 'not_taken':
+                logger.info(f'Никнейм {username} не используется.')
+                append_to_file('good.txt', username)
+                update_username_list(username, usernames)
+                sleep_times[token] = time.time() + random.uniform(1, 3)
 
-        elif result[0] == 'rate_limited':
-            logger.warning(f'Токен {token} поймал Rate Limit. Спим {result[1]} секунд. ')
-            sleep_times[token] = time.time() + result[1]
+            elif result == 'unauthorized':
+                logger.error(f"Токен {token} не авторизован и был удален")
+                tokens.remove(token)
 
-        elif result == 'connection_error':
-            logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд.")
-            time.sleep(10)
+            elif result[0] == 'rate_limited':
+                logger.warning(f'Токен {token} поймал Rate Limit. Спим {result[1]} секунд. ')
+                sleep_times[token] = time.time() + result[1]
 
-        else:
-            logger.error(f"Неизвестная ошибка: {result}")
-            sleep_times[token] = time.time() + random.uniform(5, 10)
+            elif result == 'connection_error':
+                logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд.")
+                time.sleep(10)
 
-    if not usernames:
-        logger.success("Работа завершена. Никнеймов для проверки больше нет.")
-        input()
+            else:
+                logger.error(f"Неизвестная ошибка: {result}")
+                sleep_times[token] = time.time() + random.uniform(5, 10)
+
+            i += 1
+
+        if not usernames:
+            logger.success("Работа завершена. Никнеймов для проверки больше нет.")
+            input()
 
 if __name__ == "__main__":
     main()
