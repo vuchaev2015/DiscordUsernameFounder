@@ -134,5 +134,9 @@ def main():
             logger.error(f"Неизвестная ошибка: {result}")
             sleep_times[token] = time.time() + random.uniform(5, 10)
 
+    if not usernames:
+        logger.success("Работа завершена. Никнеймов для проверки больше нет.")
+        input()
+
 if __name__ == "__main__":
     main()
