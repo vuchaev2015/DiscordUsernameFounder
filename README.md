@@ -20,7 +20,7 @@
 
 ## О проекте
 
-![Screen Shot](https://lztcdn.com/files/99c6892072da80c2dadf2be12973d65bbc7c8fb5a4081d8520458a5f545549c1.webp)
+![Screen Shot](https://lztcdn.com/files/16b18e892c80d23e54515534c35606a2291a68dd1f7a4cb64abf6dbbae7c4d28.webp)
 
 Discord Username Founder - поможет вам в поиске свободных никнеймов для Discord.
 
