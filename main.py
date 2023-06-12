@@ -3,6 +3,7 @@ import time
 import random
 from loguru import logger
 
+
 def update_username_list(username, usernames):
     usernames.remove(username)
     with open('usernames.txt', 'w') as f:
@@ -62,7 +63,6 @@ def main():
 
     sleep_times = {token: 0 for token in tokens}
     valid_tokens = []
-
     for token in tokens:
         logger.info(f"Проверяем токен {token}")
         headers['authorization'] = token
@@ -76,12 +76,12 @@ def main():
                 connection_error = False
 
                 if response.status_code == 401:
-                    logger.error(f"Токен не авторизован. Удаляем токен. Токен: {token}")
+                    logger.error(f"Токен {token} не авторизован и был удален")
                 elif 'USERNAME_ALREADY_TAKEN' in str(response_json):
-                    logger.success(f"Токен готов к работе. Токен: {token}")
+                    logger.success(f"Токен {token} готов к работе.")
                     valid_tokens.append(token)
                 elif 'USERNAME_TOO_MANY_USERS' in str(response_json):
-                    logger.error(f"Данному токену нельзя установить никнейм без тега. Токен: {token}")
+                    logger.error(f"Для токена {token} нельзя установить имя пользователя без тега")
 
             except requests.exceptions.RequestException:
                 logger.warning(
@@ -107,31 +107,31 @@ def main():
         result = check_username(username, token, headers)
 
         if result == 'taken':
-            logger.info(f'Никнейм {username} уже используется. Токен: {token}')
+            logger.info(f'Никнейм {username} уже используется.')
             append_to_file('bad.txt', username)
             update_username_list(username, usernames)
             sleep_times[token] = time.time() + random.uniform(3, 5)
 
         elif result == 'not_taken':
-            logger.info(f'Никнейм {username} не используется. Токен: {token}')
+            logger.info(f'Никнейм {username} не используется.')
             append_to_file('good.txt', username)
             update_username_list(username, usernames)
             sleep_times[token] = time.time() + random.uniform(1, 3)
 
         elif result == 'unauthorized':
-            logger.error(f"Токен не авторизован. Удаляем токен. Токен: {token}")
+            logger.error(f"Токен {token} не авторизован и был удален")
             tokens.remove(token)
 
         elif result[0] == 'rate_limited':
-            logger.warning(f'Поймали Rate Limit. Спим {result[1]} секунд. Токен: {token}')
+            logger.warning(f'Токен {token} поймал Rate Limit. Спим {result[1]} секунд. ')
             sleep_times[token] = time.time() + result[1]
 
         elif result == 'connection_error':
-            logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд. Токен: {token}")
+            logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд.")
             time.sleep(10)
 
         else:
-            logger.error(f"Неизвестная ошибка при никнейме: {username}. Токен: {token}. Ошибка: {result}")
+            logger.error(f"Неизвестная ошибка: {result}")
             sleep_times[token] = time.time() + random.uniform(5, 10)
 
 if __name__ == "__main__":
