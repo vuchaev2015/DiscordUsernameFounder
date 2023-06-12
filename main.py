@@ -9,24 +9,27 @@ def update_username_list(username, usernames):
         f.write('\n'.join(usernames))
 
 def check_username(username, token, headers):
-    json_data = {'username': username, 'password': ''}
-    response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json=json_data)
-    response_json = response.json()
+    try:
+        json_data = {'username': username, 'password': ''}
+        response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json=json_data)
+        response_json = response.json()
 
-    if response.status_code == 400 and response_json['message'] == 'Invalid Form Body':
-        errors = response_json['errors']
-        if 'username' in errors:
-            error_codes = [error['code'] for error in errors['username']['_errors']]
-            if 'USERNAME_ALREADY_TAKEN' in error_codes:
-                return 'taken'
-        elif "PASSWORD_DOES_NOT_MATCH" in str(errors):
-            return 'not_taken'
-    elif response.status_code == 401:
-        return 'unauthorized'
-    elif "retry_after" in response_json:
-        return 'rate_limited', response_json["retry_after"]
-    else:
-        return 'unknown_error'
+        if response.status_code == 400 and response_json['message'] == 'Invalid Form Body':
+            errors = response_json['errors']
+            if 'username' in errors:
+                error_codes = [error['code'] for error in errors['username']['_errors']]
+                if 'USERNAME_ALREADY_TAKEN' in error_codes:
+                    return 'taken'
+            elif "PASSWORD_DOES_NOT_MATCH" in str(errors):
+                return 'not_taken'
+        elif response.status_code == 401:
+            return 'unauthorized'
+        elif "retry_after" in response_json:
+            return 'rate_limited', response_json["retry_after"]
+        else:
+            return 'unknown_error'
+    except requests.exceptions.RequestException as e:
+        return 'connection_error'
 
 def load_file(file_name):
     with open(file_name, 'r') as f:
@@ -63,16 +66,27 @@ def main():
     for token in tokens:
         logger.info(f"Проверяем токен {token}")
         headers['authorization'] = token
-        response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json={'username': 'qwe', 'password': ''})
-        response_json = response.json()
+        connection_error = True
 
-        if response.status_code == 401:
-            logger.error(f"Токен не авторизован. Удаляем токен. Токен: {token}")
-        elif 'USERNAME_ALREADY_TAKEN' in str(response_json):
-            logger.success(f"Токен готов к работе. Токен: {token}")
-            valid_tokens.append(token)
-        elif 'USERNAME_TOO_MANY_USERS' in str(response_json):
-            logger.error(f"Данному токену нельзя установить никнейм без тега. Токен: {token}")
+        while connection_error:
+            try:
+                response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers,
+                                          json={'username': 'qwe', 'password': ''})
+                response_json = response.json()
+                connection_error = False
+
+                if response.status_code == 401:
+                    logger.error(f"Токен не авторизован. Удаляем токен. Токен: {token}")
+                elif 'USERNAME_ALREADY_TAKEN' in str(response_json):
+                    logger.success(f"Токен готов к работе. Токен: {token}")
+                    valid_tokens.append(token)
+                elif 'USERNAME_TOO_MANY_USERS' in str(response_json):
+                    logger.error(f"Данному токену нельзя установить никнейм без тега. Токен: {token}")
+
+            except requests.exceptions.RequestException:
+                logger.warning(
+                    f"Ошибка соединения при проверке токена: {token}. Повторяем проверку через 10 секунд.")
+                time.sleep(10)
 
     tokens = valid_tokens
     sleep_times = {token: 0 for token in tokens}
@@ -111,6 +125,10 @@ def main():
         elif result[0] == 'rate_limited':
             logger.warning(f'Поймали Rate Limit. Спим {result[1]} секунд. Токен: {token}')
             sleep_times[token] = time.time() + result[1]
+
+        elif result == 'connection_error':
+            logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд. Токен: {token}")
+            time.sleep(10)
 
         else:
             logger.error(f"Неизвестная ошибка при никнейме: {username}. Токен: {token}. Ошибка: {result}")
