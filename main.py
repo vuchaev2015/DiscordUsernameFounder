@@ -150,18 +150,18 @@ class Worker(Thread):
 def main():
     parser = argparse.ArgumentParser(description='Check Discord usernames.')
     parser.add_argument('-t', '--threads', type=int, default=2,
-                        help='Number of threads to use (default: 1)')
+                        help='Количество потоков для использованоя (по умолчанию: 1)')
     args = parser.parse_args()
 
     threads = args.threads
     tokens, usernames = load_file('tokens.txt'), load_file('usernames.txt')
 
     if not usernames:
-        logger.error("File usernames.txt is empty")
+        logger.error("Файл usernames.txt не заполнен")
         input()
         return
     if not tokens:
-        logger.error("File tokens.txt is empty")
+        logger.error("Файл tokens.txt не заполнен")
         input()
         return
 
