@@ -5,12 +5,13 @@ from loguru import logger
 from threading import Thread, Semaphore
 import argparse
 
-def update_username_list(username, usernames):
+def update_username_list(username):
+    with open('usernames.txt', 'r') as f:
+        usernames = [line.strip() for line in f if line.strip()]
     if username in usernames:
         usernames.remove(username)
         with open('usernames.txt', 'w') as f:
             f.write('\n'.join(usernames))
-
 def check_username(username, token, headers):
     try:
         json_data = {'username': username, 'password': ''}
@@ -79,10 +80,10 @@ def get_best_token(tokens):
 
 
 class Worker(Thread):
-    def __init__(self, tokens, usernames, lock):
+    def __init__(self, tokens, usernames_queue, lock):
         Thread.__init__(self)
         self.tokens = tokens
-        self.usernames = usernames
+        self.usernames_queue = usernames_queue
         self.lock = lock
 
     def get_headers(self, token):
@@ -98,11 +99,11 @@ class Worker(Thread):
         return headers
 
     def run(self):
-        while self.usernames:
+        while not self.usernames_queue.empty():
             with self.lock:
-                if not self.usernames:
+                if self.usernames_queue.empty():
                     break
-                username = self.usernames.pop(0)
+                username = self.usernames_queue.get()
                 best_token = get_best_token(self.tokens)
                 if best_token is None:
                     logger.warning(f"Поток {self.name}: Нет доступных токенов. Завершаем поток.")
@@ -118,12 +119,12 @@ class Worker(Thread):
             if result == 'taken':
                 logger.info(f'Поток {self.name}: Имя пользователя {username} уже используется.')
                 append_to_file('bad.txt', username)
-                update_username_list(username, self.usernames)
+                update_username_list(username)
                 best_token.set_sleep_until(time.time() + random.uniform(4, 6))
             elif result == 'not_taken':
                 logger.info(f'Поток {self.name}: Имя пользователя {username} свободно.')
                 append_to_file('good.txt', username)
-                update_username_list(username, self.usernames)
+                update_username_list(username)
                 best_token.set_sleep_until(time.time() + random.uniform(4, 6))
 
             elif result == 'connection_error':
@@ -149,7 +150,7 @@ class Worker(Thread):
 
 def main():
     parser = argparse.ArgumentParser(description='Check Discord usernames.')
-    parser.add_argument('-t', '--threads', type=int, default=2,
+    parser.add_argument('-t', '--threads', type=int, default=1,
                         help='Количество потоков для использования (по умолчанию: 1)')
     args = parser.parse_args()
 
@@ -205,9 +206,14 @@ def main():
 
     lock = Lock()
 
+    from queue import Queue
+    usernames_queue = Queue()
+    for username in usernames:
+        usernames_queue.put(username)
+
     workers = []
     for i in range(threads):
-        worker = Worker(valid_tokens, usernames, lock)
+        worker = Worker(valid_tokens, usernames_queue, lock)
         workers.append(worker)
         worker.start()
 
