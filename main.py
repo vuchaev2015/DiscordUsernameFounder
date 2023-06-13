@@ -105,9 +105,8 @@ class Worker(Thread):
                 username = self.usernames.pop(0)
                 best_token = get_best_token(self.tokens)
                 if best_token is None:
-                    logger.warning(f"Поток {self.name}: Нет доступных токенов. Ожидаем...")
-                    time.sleep(1)
-                    continue
+                    logger.warning(f"Поток {self.name}: Нет доступных токенов. Завершаем поток.")
+                    return
                 best_token.set_in_use(True)
 
             while time.time() < best_token.get_sleep_until():
@@ -133,6 +132,7 @@ class Worker(Thread):
 
             elif result == 'unauthorized':
                 logger.warning(f"Поток {self.name}: Токен {best_token.token} является неавторизованным и был удален")
+                self.tokens.remove(best_token)
                 best_token.set_sleep_until(time.time() + 10)
 
             elif result == 'unknown_error':
@@ -150,7 +150,7 @@ class Worker(Thread):
 def main():
     parser = argparse.ArgumentParser(description='Check Discord usernames.')
     parser.add_argument('-t', '--threads', type=int, default=2,
-                        help='Количество потоков для использованоя (по умолчанию: 1)')
+                        help='Количество потоков для использования (по умолчанию: 1)')
     args = parser.parse_args()
 
     threads = args.threads
@@ -167,7 +167,7 @@ def main():
 
     valid_tokens = []
     for token in tokens:
-        logger.info(f"Checking token {token}")
+        logger.info(f"Проверяем токен {token}")
         headers = {'authorization': token}
         connection_error = True
 
