@@ -2,12 +2,14 @@ import requests
 import time
 import random
 from loguru import logger
-
+from threading import Thread, Semaphore
+import argparse
 
 def update_username_list(username, usernames):
-    usernames.remove(username)
-    with open('usernames.txt', 'w') as f:
-        f.write('\n'.join(usernames))
+    if username in usernames:
+        usernames.remove(username)
+        with open('usernames.txt', 'w') as f:
+            f.write('\n'.join(usernames))
 
 def check_username(username, token, headers):
     try:
@@ -40,32 +42,133 @@ def append_to_file(file_name, content):
     with open(file_name, 'a') as f:
         f.write(content + '\n')
 
+from threading import Lock
+
+class Token:
+    def __init__(self, token):
+        self.token = token
+        self.sleep_until = time.time() + random.uniform(1, 3)
+        self.lock = Lock()
+        self.in_use = False
+
+    def set_sleep_until(self, sleep_until):
+        with self.lock:
+            self.sleep_until = sleep_until
+
+    def get_sleep_until(self):
+        with self.lock:
+            return self.sleep_until
+
+    def set_in_use(self, in_use):
+        with self.lock:
+            self.in_use = in_use
+
+    def get_in_use(self):
+        with self.lock:
+            return self.in_use
+
+def get_best_token(tokens):
+    available_tokens = [token for token in tokens if not token.get_in_use()]
+    if not available_tokens:
+        return None
+    best_token = available_tokens[0]
+    for token in available_tokens[1:]:
+        if token.get_sleep_until() < best_token.get_sleep_until():
+            best_token = token
+    return best_token
+
+
+class Worker(Thread):
+    def __init__(self, tokens, usernames, lock):
+        Thread.__init__(self)
+        self.tokens = tokens
+        self.usernames = usernames
+        self.lock = lock
+
+    def get_headers(self, token):
+        headers = {
+            'authority': 'discord.com',
+            'accept': '*/*',
+            'accept-language': 'ru,en;q=0.9,en-GB;q=0.8,en-US;q=0.7',
+            'content-type': 'application/json',
+            'origin': 'https://discord.com',
+            'referer': 'https://discord.com/channels/@me',
+        }
+        headers['authorization'] = token
+        return headers
+
+    def run(self):
+        while self.usernames:
+            with self.lock:
+                if not self.usernames:
+                    break
+                username = self.usernames.pop(0)
+                best_token = get_best_token(self.tokens)
+                if best_token is None:
+                    logger.warning(f"Поток {self.name}: Нет доступных токенов. Ожидаем...")
+                    time.sleep(1)
+                    continue
+                best_token.set_in_use(True)
+
+            while time.time() < best_token.get_sleep_until():
+                time.sleep(0.1)
+
+            headers = self.get_headers(best_token.token)
+            result = check_username(username, best_token.token, headers)
+
+            if result == 'taken':
+                logger.info(f'Поток {self.name}: Имя пользователя {username} уже используется.')
+                append_to_file('bad.txt', username)
+                update_username_list(username, self.usernames)
+                best_token.set_sleep_until(time.time() + random.uniform(4, 6))
+            elif result == 'not_taken':
+                logger.info(f'Поток {self.name}: Имя пользователя {username} свободно.')
+                append_to_file('good.txt', username)
+                update_username_list(username, self.usernames)
+                best_token.set_sleep_until(time.time() + random.uniform(4, 6))
+
+            elif result == 'connection_error':
+                logger.warning(f"Поток {self.name}: Ошибка соединения. Повторяем запрос через 10 секунд.")
+                best_token.set_sleep_until(time.time() + 10)
+
+            elif result == 'unauthorized':
+                logger.warning(f"Поток {self.name}: Токен {best_token.token} является неавторизованным и был удален")
+                best_token.set_sleep_until(time.time() + 10)
+
+            elif result == 'unknown_error':
+                logger.error(f"Unknown error: {result}")
+
+            elif result[0] == 'rate_limited':
+                sleep_time = result[1] + random.uniform(0.5, 1.2)
+                logger.warning(
+                    f"Поток {self.name}: Токен {best_token.token} Rate Limited. Спим {sleep_time} секунд перед следующим запросом.")
+                best_token.set_sleep_until(time.time() + sleep_time)
+
+
+            best_token.set_in_use(False)
+
 def main():
+    parser = argparse.ArgumentParser(description='Check Discord usernames.')
+    parser.add_argument('-t', '--threads', type=int, default=2,
+                        help='Number of threads to use (default: 1)')
+    args = parser.parse_args()
+
+    threads = args.threads
     tokens, usernames = load_file('tokens.txt'), load_file('usernames.txt')
 
     if not usernames:
-        logger.error("Файл usernames.txt пуст")
+        logger.error("File usernames.txt is empty")
         input()
         return
     if not tokens:
-        logger.error("Файл tokens.txt пуст")
+        logger.error("File tokens.txt is empty")
         input()
         return
 
-    headers = {
-        'authority': 'discord.com',
-        'accept': '*/*',
-        'accept-language': 'ru,en;q=0.9,en-GB;q=0.8,en-US;q=0.7',
-        'content-type': 'application/json',
-        'origin': 'https://discord.com',
-        'referer': 'https://discord.com/channels/@me',
-    }
-
-    sleep_times = {token: 0 for token in tokens}
     valid_tokens = []
     for token in tokens:
-        logger.info(f"Проверяем токен {token}")
-        headers['authorization'] = token
+        logger.info(f"Checking token {token}")
+        headers = {'authorization': token}
         connection_error = True
 
         while connection_error:
@@ -75,71 +178,44 @@ def main():
                 response_json = response.json()
                 connection_error = False
 
-                if response.status_code == 401:
-                    logger.error(f"Токен {token} не авторизован и был удален")
+                if 'retry_after' in response_json:
+                    logger.error(f"Токен {token} Rate limited")
+                    print(response_json)
+                elif response.status_code == 401:
+                    logger.error(f"Токен {token} является неавторизованным и был удален")
                 elif 'USERNAME_ALREADY_TAKEN' in str(response_json):
                     logger.success(f"Токен {token} готов к работе.")
-                    valid_tokens.append(token)
+                    valid_tokens.append(Token(token))
                 elif 'USERNAME_TOO_MANY_USERS' in str(response_json):
-                    logger.error(f"Для токена {token} нельзя установить имя пользователя без тега")
+                    logger.error(f"Токен {token} не может установить имя пользователя без тега")
 
             except requests.exceptions.RequestException:
                 logger.warning(
                     f"Ошибка соединения при проверке токена: {token}. Повторяем проверку через 10 секунд.")
                 time.sleep(10)
 
-    tokens = valid_tokens
-    sleep_times = {token: 0 for token in tokens}
+    if not valid_tokens:
+        logger.error("Работа завершена. Нет валидных токенов")
+        input()
+        return
 
-    if not tokens:
-        logger.error("Нет валидных токенов")
-    else:
-        while usernames:
-            i = 0
-            username = usernames[0]
-            token = tokens[i % len(tokens)]
-            headers['authorization'] = token
+    if threads > len(valid_tokens):
+        threads = len(valid_tokens)
+        logger.warning(f"Количество потоков было уменьшено до {threads}, чтобы соответствовать количеству допустимых токенов")
 
-            while sleep_times[token] > time.time():
-                token = min(sleep_times, key=lambda t: sleep_times[t])
-                headers['authorization'] = token
-                time.sleep(max(0, sleep_times[token] - time.time()))
+    lock = Lock()
 
-            result = check_username(username, token, headers)
+    workers = []
+    for i in range(threads):
+        worker = Worker(valid_tokens, usernames, lock)
+        workers.append(worker)
+        worker.start()
 
-            if result == 'taken':
-                logger.info(f'Никнейм {username} уже используется.')
-                append_to_file('bad.txt', username)
-                update_username_list(username, usernames)
-                sleep_times[token] = time.time() + random.uniform(3, 5)
+    for worker in workers:
+        worker.join()
 
-            elif result == 'not_taken':
-                logger.info(f'Никнейм {username} не используется.')
-                append_to_file('good.txt', username)
-                update_username_list(username, usernames)
-                sleep_times[token] = time.time() + random.uniform(1, 3)
-
-            elif result == 'unauthorized':
-                logger.error(f"Токен {token} не авторизован и был удален")
-                tokens.remove(token)
-
-            elif result[0] == 'rate_limited':
-                logger.warning(f'Токен {token} поймал Rate Limit. Спим {result[1]} секунд. ')
-                sleep_times[token] = time.time() + result[1]
-
-            elif result == 'connection_error':
-                logger.warning(f"Ошибка соединения. Повторяем запрос через 10 секунд.")
-                time.sleep(10)
-
-            else:
-                logger.error(f"Неизвестная ошибка: {result}")
-                sleep_times[token] = time.time() + random.uniform(5, 10)
-
-            i += 1
-
-        if not usernames:
-            logger.success("Работа завершена. Никнеймов для проверки больше нет.")
-            input()
+    logger.success("Работа завершена. Никнеймов для проверки больше нет.")
+    input()
 
 if __name__ == "__main__":
     main()
