@@ -27,7 +27,6 @@ def check_username(username, token, headers):
         else:
             response = requests.patch('https://discord.com/api/v9/users/@me', headers=headers, json=json_data)
         response_json = response.json()
-        print(response.json())
         if response.status_code == 400 and response_json['message'] == 'Invalid Form Body':
             errors = response_json['errors']
             if 'username' in errors:
